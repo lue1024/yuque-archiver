@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "语雀知识库批量导出",
+  "version": "0.1.0",
+  "description": "把语雀知识库批量导出为 Markdown / HTML / Lake，图片与附件下载到本地并改写链接。使用你自己的语雀登录态，不依赖任何第三方服务。",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "语雀知识库批量导出",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "downloads",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://yuque.com/*",
+    "https://*.yuque.com/*"
+  ],
+  "background": {
+    "service_worker": "js/background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://yuque.com/*",
+        "https://*.yuque.com/*"
+      ],
+      "js": ["js/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

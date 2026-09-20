@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>语雀知识库批量导出</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header class="hd">
+    <div class="hd-title">语雀知识库批量导出</div>
+    <div class="hd-page" id="pageInfo">正在读取当前标签页…</div>
+  </header>
+
+  <section class="card">
+    <div class="row">
+      <button id="scanBtn" class="btn btn-primary">读取知识库目录</button>
+      <button id="scrapeBtn" class="btn" title="抓页面数据失败时，改用侧边栏 DOM 兜底">DOM 兜底</button>
+    </div>
+    <div class="hint" id="scanHint">
+      打开一个语雀知识库页面（形如 <code>yuque.com/用户名/知识库名</code>），再点上面的按钮。
+    </div>
+  </section>
+
+  <section class="card" id="treeCard" hidden>
+    <div class="row row-between">
+      <div class="tree-title" id="bookTitle">目录</div>
+      <div class="row">
+        <button id="selectAllBtn" class="btn btn-mini">全选</button>
+        <button id="selectNoneBtn" class="btn btn-mini">全不选</button>
+      </div>
+    </div>
+    <div class="tree" id="tree"></div>
+    <div class="hint" id="treeCount"></div>
+  </section>
+
+  <section class="card">
+    <div class="fmt-title">导出格式</div>
+    <label class="chk"><input type="checkbox" id="fmtMd" checked /> <span>Markdown（.md）</span></label>
+    <label class="chk"><input type="checkbox" id="fmtHtml" /> <span>HTML（由 Markdown 渲染，单文件可直开）</span></label>
+    <label class="chk"><input type="checkbox" id="fmtLake" /> <span>原始 lake 导出（存 .lake 原文 + 一份能直接看的 .html）</span></label>
+    <label class="chk"><input type="checkbox" id="localizeImg" checked /> <span>把图片下载到本地并改写链接</span></label>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <button id="exportBtn" class="btn btn-primary" disabled>开始导出</button>
+      <button id="cancelBtn" class="btn" disabled>停止</button>
+    </div>
+    <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+    <div class="hint" id="statusText">待开始</div>
+  </section>
+
+  <section class="card">
+    <div class="log-head">
+      <span>运行日志</span>
+      <button id="clearLogBtn" class="btn btn-mini">清空</button>
+    </div>
+    <pre class="log" id="log"></pre>
+  </section>
+
+  <script src="js/config.js"></script>
+  <script src="js/md2html.js"></script>
+  <script src="js/html2md.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
