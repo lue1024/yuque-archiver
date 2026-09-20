@@ -14,6 +14,8 @@ Chrome MV3 扩展。把语雀知识库批量导出为 **Markdown / HTML / lake �
 4. **改了任何文件之后必须点插件卡片上的 ⟳ 重新加载**，否则跑的还是旧代码
 
 要求 Chrome 116+（用到 `chrome.sidePanel.setPanelBehavior`）。
+![Uploading image.png…]()
+
 
 ## 二、使用
 
