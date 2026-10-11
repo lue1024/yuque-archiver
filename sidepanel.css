@@ -111,11 +111,15 @@ body { padding: 10px; }
   color: var(--muted);
   user-select: none;
 }
+.node[hidden] { display: none; }
 .node .caret.leaf { visibility: hidden; }
 .node label { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .fmt-title { font-weight: 600; margin-bottom: 6px; }
 .chk { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 12px; cursor: pointer; }
+.download-options { margin-top: 7px; font-size: 12px; }
+.download-options input[type=number] { width: 80px; padding: 4px; font: inherit; }
+.download-options .hint { margin-top: 0; }
 
 .bar {
   height: 4px;

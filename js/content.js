@@ -51,8 +51,8 @@ function scrapeSidebarToc() {
   });
   if (!anchors.length) return { ok: false, error: '侧边栏里没找到文档链接，请先在页面上展开知识库目录' };
 
-  const lefts = anchors.map((a) => a.getBoundingClientRect().left);
-  const minLeft = Math.min(...lefts.filter((n) => n > 0).concat([0]));
+  const lefts = anchors.map((a) => a.getBoundingClientRect().left).filter((n) => n > 0);
+  const minLeft = lefts.length ? Math.min(...lefts) : 0;
   const seen = new Set();
   const nodes = [];
 
@@ -69,10 +69,14 @@ function scrapeSidebarToc() {
       type: 'doc',
     });
   }
-  return { ok: true, nodes, host: state.host, origin: state.origin };
+  return { ok: true, nodes, href: state.href, host: state.host, origin: state.origin };
 }
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+// 扩展重新加载后已有标签页可能没有接收端；允许按需重新注入，避免注册多个监听器。
+if (globalThis.__yqArchiveMessageListener) {
+  chrome.runtime.onMessage.removeListener(globalThis.__yqArchiveMessageListener);
+}
+globalThis.__yqArchiveMessageListener = (msg, sender, sendResponse) => {
   try {
     switch (msg && msg.type) {
       case 'GET_PAGE_STATE':
@@ -82,10 +86,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(scrapeSidebarToc());
         break;
       default:
-        sendResponse({ ok: false, error: '未知消息: ' + (msg && msg.type) });
+        return false;
     }
   } catch (e) {
     sendResponse({ ok: false, error: e.message || String(e) });
   }
-  return true;
-});
+  return false; // 所有响应均同步完成
+};
+chrome.runtime.onMessage.addListener(globalThis.__yqArchiveMessageListener);
