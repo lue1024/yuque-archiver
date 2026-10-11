@@ -20,8 +20,19 @@ Chrome MV3 扩展。把语雀知识库批量导出为 **Markdown / HTML / lake �
 
 1. 在 Chrome 里登录语雀，切到任意一个知识库页面（`yuque.com/用户名/知识库名`）
 2. 点插件图标 → 右侧栏打开 → 点「读取知识库目录」
-3. 勾选要导的文档，选格式，点「开始导出」
-4. 文件落在 `下载/<知识库名>/`，按目录层级分文件夹，图片进 `_assets/`
+3. 点「选择保存位置」，选择用于存放知识库的父目录，并允许浏览器读写该目录（也可点击开始导出时再选）
+4. 勾选要导的文档、选择格式，保留默认的「只下载缺失文件」，点「开始导出」
+5. 插件先在 `<所选位置>/<知识库名>/` 中检查并补齐语雀文件夹，再逐个核对文档；图片进入 `_assets/`
+
+导出格式下方可设置下载限速，单位 KB/s，`0` 表示不限速。开启限速后导出改为单请求处理，对语雀正文、lake 与图片的读取按字节控制平均速度。
+
+「只下载缺失文件」默认开启。检查与实际写入使用同一个本地目录，不依赖 Chrome 下载记录。文件夹缺失就创建；对应的非空文件已存在就跳过正文下载，缺失或零字节文件才下载。Markdown 已有但 HTML 缺失时，只补 HTML。以完整的文件夹路径和文件名去重，不会把不同分组的同名文章混为一篇。
+
+勾选图片本地化时，也会检查所选格式的已有 Markdown / HTML：之前图片失败留下的远程图片链接会重新尝试下载，成功后只替换这些链接，不重新获取正文。写回前会核对原文未被其他程序修改；失败的图片保持远程链接，下一次导出可重试。
+
+例如选择 `D:\语雀备份`，语雀中有 `知识库/安全研究/文章一`，插件就准备 `D:\语雀备份\知识库\安全研究`，然后检查并补齐 `文章一.md`。之前的文件位于 `下载/<知识库名>/` 时，应选择“下载”这一父目录，避免多套一层知识库名。
+
+所选目录只在当前侧栏会话有效，重新打开侧栏需要重新选择同一个保存位置。去重不比较正文内容或远程版本；取消勾选会另存 `标题 (1).md` 等副本，已有非空文件不覆盖。空文件夹也会保留；勾选决定哪些文档需要补下载。
 
 | 格式 | 产出 |
 |---|---|
@@ -83,18 +94,19 @@ const injected = await chrome.scripting.executeScript({
 
 ### 3.3 目录怎么来的
 
-不调 API，是**抓知识库首页的 HTML，把服务端内联的 appData 抠出来**：
+先**抓知识库首页的 HTML，把服务端内联的 appData 提取出来**。没有可用目录时，会继续读取当前语雀标签页的运行态数据，再自动尝试 DOM 兜底。
 
 ```js
 // sidepanel.js
 function fromDecodeUriComponent(html) {
-  // 语雀把整个 appData 塞在 decodeURIComponent("...") 里
-  const marker = 'decodeURIComponent("';
-  // 找到 " 之间的内容 → decodeURIComponent → JSON.parse
+  // 收集 decodeURIComponent("...") 或 decodeURIComponent('...') 中的 JSON
+  // 不执行页面脚本；仅解码字符串和解析 JSON
 }
 ```
 
-抠出 JSON 后不写死路径，而是**递归搜索最像目录的那个数组**（`findTocArray`）：数组里 ≥70% 的元素同时有 `title` 和 `url`/`slug` 才算数。这样语雀改了 JSON 结构也不会立刻失效。
+`findTocArray` 优先识别 `toc` / `tocs` 字段下的完整目录，兼容 JSON 字符串、单篇文档、含大量分组及嵌套节点的目录。其他位置的数组需要包含文档字段或文档路径证据，避免把普通导航菜单识别为知识库目录。
+
+DOM 兜底遇到 `Could not establish connection. Receiving end does not exist.` 时，会补注入 `js/content.js` 并重试一次。重复注入会替换原有监听器。此路径只读取页面已加载的文档链接；折叠或尚未加载的目录可能缺失，页面中展开目录后可重新读取。
 
 ### 3.4 目录节点的真实字段
 
@@ -246,7 +258,7 @@ Accept: */*
 
 ```
 yuque-kb-exporter/
-├── manifest.json      MV3 清单，权限：storage tabs scripting downloads sidePanel
+├── manifest.json      MV3 清单；主机权限：语雀与 cdn.nlark.com
 ├── sidepanel.html/.css
 ├── sidepanel.js       主逻辑（目录解析、导出编排、落盘、lake 渲染）
 ├── js/
@@ -254,25 +266,29 @@ yuque-kb-exporter/
 │   ├── background.js  页面上下文 fetch + 消息路由
 │   ├── content.js     页面信息 + 侧边栏 DOM 兜底
 │   ├── html2md.js     HTML → Markdown
-│   └── md2html.js     Markdown → 独立 HTML
+│   ├── md2html.js     Markdown → 独立 HTML
+│   └── local-files.js  所选本地目录的创建、去重与写入
 └── icons/
 ```
 
 ### 6.1 目录结构
 
 ```
-下载/<知识库名>/
+<所选位置>/<知识库名>/
 ├── _assets/                      图片与附件（全库共用）
 │   └── 1789394368063-xxx.png
-└── <分组>/<子分组>/               跟着语雀目录层级走，最多 3 层
+└── <分组>/<子分组>/               跟着语雀完整目录层级走
     └── 标题.md
 ```
 
-超过 3 层的嵌套会被截断（`capDepth`），避免 Windows 260 字符路径上限。
+保留完整目录层级，不再截取最后三层。操作系统若拒绝过长路径，会记录实际失败路径，便于改用较短的保存位置。
+同一目录内重名的文档会加稳定的 URL 哈希后缀，按整个已读取知识库目录确定，分批勾选不会改变名字。若同时选 HTML 与 lake，lake 的可读版本保存为 `标题.lake.html`。
 
-### 6.2 ⚠️ Chrome 会按 MIME 改写扩展名
+### 6.2 本地写入与文件扩展名
 
-**踩过的坑**：`Blob` 的 type 给 `text/plain` 时，Chrome 的下载接口会把 `文档.lake` 存成 `文档.txt`，**无视 `filename` 参数**。
+正常导出通过 File System Access API 直接保存到所选目录。只有文件内容写入并成功关闭写入流后，才计为成功。写入失败会中止写入流；下次重新导出时，缺失或空文件可重试。
+
+兼容的 Chrome 下载接口代码仍使用 `application/octet-stream`，避免浏览器按 MIME 将 `.lake` 改成 `.txt`。
 
 所以 `saveText()` 一律用 `application/octet-stream`（没有 MIME→扩展名映射，文件名才作数）：
 
@@ -284,10 +300,14 @@ function saveText(filename, text) {
 
 ### 6.3 图片下载
 
-两条路：
+图片内容取回后统一写入所选目录：
 
-1. 先走页面上下文取二进制（能带 cookie，且能拿到真实的成功/失败）
-2. 失败退到 `chrome.downloads.download({ url })` 直下（浏览器层面下载，绕过 CORS）
+1. `yuque.com` 及其子域下的资源先借语雀页面读取，失败后尝试后台读取
+2. `cdn.nlark.com` 等外站图片直接由扩展后台读取，不要求打开图片域名的标签页。清单已声明 `https://cdn.nlark.com/*` 主机权限；其他图片域名需要允许跨域读取或另行配置主机权限
+
+所有图片读取路径保留相同限速。失败时记录图片错误，正文保留远程图片链接，不改写成不存在的本地路径；同一次导出按图片 URL 合并重复失败日志。图片地址返回 HTML / JSON 错误页时不会保存成图片。图片文件名包含 URL 哈希，不依赖文档的下载顺序。
+
+升级到 0.3.1 后，在扩展管理页重新加载扩展，并确认允许访问 `cdn.nlark.com`。此前出现图片失败时，重新选同一个保存位置，保持图片本地化与只下载缺失文件勾选，再导出对应文档即可补图，无需删除已有正文或关闭去重。日志会显示「已补全图片链接」。
 
 正文里的链接统一改写成相对路径 `../_assets/xxx.png`，前缀按文档所在深度算。
 
@@ -297,27 +317,26 @@ function saveText(filename, text) {
 
 ```js
 // js/config.js
-concurrency: 3,     // 并发文档数
+concurrency: 3,     // 不限速时的并发文档数；限速时固定为 1
 delayMs: 220,       // 每篇之间的间隔
-timeoutMs: 60000,   // 单请求超时
+timeoutMs: 60000,   // 网络等待超时
 ```
 
-5301 篇的库一次导完会持续打语雀几十秒，**不建议把并发调到 6 以上**。
+5301 篇的库一次导完会持续打语雀几十秒，**不建议把并发调到 6 以上**。KB/s 限速通过读取响应流实现，适合控制整个导出的平均处理速度；浏览器网络栈仍可能预取或短时缓冲，不能保证操作系统层面的瞬时带宽上限。
 
 ---
 
 ## 八、测试
 
-转换器和纯逻辑都在 Node 下直接跑，不需要浏览器：
+当前目录内的回归测试可在 Node 下直接运行，不需要语雀登录态：
 
 ```bash
-node test-h2m.js        # HTML → Markdown，10 个用例
-node test-m2h.js        # Markdown → HTML，16 项断言
-node test-sidepanel.js  # 目录解析 / URL 拼接 / 下载文件名，43 项断言
-node test-poc.js        # 单列表格里的 POC
-node test-br.js         # 两列表格 + 请求包、真表格不被误伤
-node test-yuque-md.js   # 语雀 /markdown 产出的原始 Markdown 端到端
-node test-lake.js       # lake 文档展开（样本是真实导出文件）
+node test-download.js   # 本地去重、同名图片和 KB/s 读取节流
+node test-toc.js        # appData 提取和目录结构兼容
+node test-scan.js       # 接收端缺失自动恢复及目录读取兜底
+node test-local-files.js # 创建目录、磁盘去重、写入失败与并发
+node test-incremental.js # 先建目录、补齐缺失文件的离线集成验证
+node test-cdn.js        # CDN 权限、请求路径、HTTP 错误和限速
 ```
 
 `sidepanel.js` 的测试方式：拿假的 `document` / `chrome` 建 VM 沙箱，把整个文件 load 进去再取里面的纯函数。
@@ -330,7 +349,7 @@ node test-lake.js       # lake 文档展开（样本是真实导出文件）
 - **只支持 Markdown / HTML / lake 原始文件**。PDF 和 Word 没有实现 —— `/docx` 接口在普通文档上返回 404。
 - **lake 表格里是 POC 的会被转成代码块**，这是有意为之（见 5.3），不是纯原样保存。
 - **依赖 `<!doctype lake>` 这个标记**判断 lake 格式。语雀如果换掉，`classifyExportText()` 一处就能改。
-- 导出的文件**不做去重**，同一篇导两次会得到 `标题(1).md`。
+- 本地去重按文件路径和非空状态判断；同路径的不同版本会被视为已有文件。不会校验已有正文完整性；补图仅处理正文中仍是远程地址的图片，不检测已改成本地链接但后来被手动删除的图片，也不自动刷新失效的签名链接。
 
 ---
 
@@ -343,4 +362,5 @@ node test-lake.js       # lake 文档展开（样本是真实导出文件）
    样例：{"type":"TITLE","title":"...","url":"",...}
    ```
    这两行能直接看出语雀的字段有没有变
-3. 接口挂了先怀疑 `js/config.js` 里的 URL 模板，不是逻辑
+3. 目录读取失败时会自动尝试页面数据和 DOM，并记录页面标题及数据顶层字段。若页面是登录页或无权限提示，请先在语雀页面完成登录并确认能看到知识库目录。
+4. 更新扩展后，先在 `chrome://extensions/` 重新加载扩展，再回到语雀页面重新打开侧栏。若自动补注入仍失败，请刷新语雀页面，并检查扩展是否获准访问该语雀站点。

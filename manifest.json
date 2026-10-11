@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "语雀知识库批量导出",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "description": "把语雀知识库批量导出为 Markdown / HTML / Lake，图片与附件下载到本地并改写链接。使用你自己的语雀登录态，不依赖任何第三方服务。",
   "minimum_chrome_version": "116",
   "icons": {
@@ -28,7 +28,8 @@
   ],
   "host_permissions": [
     "https://yuque.com/*",
-    "https://*.yuque.com/*"
+    "https://*.yuque.com/*",
+    "https://cdn.nlark.com/*"
   ],
   "background": {
     "service_worker": "js/background.js"

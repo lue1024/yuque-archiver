@@ -1,13 +1,12 @@
 importScripts('config.js');
 
 /**
- * 后台只做一件事：借一个已登录的语雀标签页发请求。
+ * 正文借已登录的语雀标签页取数；CDN 图片由有主机权限的扩展后台读取。
  *
  * 为什么不在 service worker 里直接 fetch：
  *  1. 语雀的导出接口校验 Referer / 同源，worker 里 fetch 会被拒；
- *  2. 图片等资源还可能撞 CORS。
- * 注入到页面主世界后，请求就是从 yuque.com 自己发出的，
- * cookies、Referer、CORS 全部天然满足。
+ * CDN 不是语雀文档站点，不要求打开同域标签页。
+ * 扩展后台跨域读取 CDN 需要 manifest 中声明对应 host_permissions。
  */
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -57,9 +56,9 @@ async function ensureYuqueTab(host, openUrl) {
 }
 
 /** 注入到页面主世界的取数函数。必须是自包含的，不能引用外部变量。 */
-async function pageFetch(url, asBinary, timeoutMs) {
+async function pageFetch(url, asBinary, timeoutMs, limitBytesPerSec) {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  let timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       credentials: 'include',
@@ -71,8 +70,31 @@ async function pageFetch(url, asBinary, timeoutMs) {
     if (!res.ok) {
       return { ok: false, status: res.status, mime: contentType, error: `HTTP ${res.status}` };
     }
+    let buf;
+    if (limitBytesPerSec > 0 && res.body) {
+      // 按读取的字节数节流；导出时只开一个 worker，限额作用于整个导出。
+      clearTimeout(timer);
+      const reader = res.body.getReader();
+      const chunks = [];
+      let total = 0;
+      const started = performance.now();
+      while (true) {
+        timer = setTimeout(() => ctrl.abort(), timeoutMs);
+        let part;
+        try { part = await reader.read(); } finally { clearTimeout(timer); }
+        if (part.done) break;
+        chunks.push(part.value);
+        total += part.value.byteLength;
+        const wait = started + total * 1000 / limitBytesPerSec - performance.now();
+        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+      buf = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) { buf.set(chunk, offset); offset += chunk.byteLength; }
+    } else {
+      buf = new Uint8Array(await res.arrayBuffer());
+    }
     if (asBinary) {
-      const buf = new Uint8Array(await res.arrayBuffer());
       let bin = '';
       const CHUNK = 0x8000;
       for (let i = 0; i < buf.length; i += CHUNK) {
@@ -80,7 +102,7 @@ async function pageFetch(url, asBinary, timeoutMs) {
       }
       return { ok: true, status: res.status, mime: contentType, b64: btoa(bin) };
     }
-    return { ok: true, status: res.status, mime: contentType, text: await res.text() };
+    return { ok: true, status: res.status, mime: contentType, text: new TextDecoder().decode(buf) };
   } catch (e) {
     return { ok: false, error: e && e.name === 'AbortError' ? '请求超时' : String(e) };
   } finally {
@@ -88,7 +110,7 @@ async function pageFetch(url, asBinary, timeoutMs) {
   }
 }
 
-async function fetchViaPage(url, asBinary = false) {
+async function fetchViaPage(url, asBinary = false, limitKbps = 0) {
   const host = hostOf(url);
   if (!host) throw new Error('无效的 URL: ' + url);
 
@@ -99,7 +121,7 @@ async function fetchViaPage(url, asBinary = false) {
       target: { tabId: tab.id },
       world: 'MAIN',
       func: pageFetch,
-      args: [url, asBinary, YQ_CFG.timeoutMs],
+      args: [url, asBinary, YQ_CFG.timeoutMs, Math.max(0, Math.min(10240, Number(limitKbps) || 0)) * 1024],
     });
     result = injected && injected[0] && injected[0].result;
   } catch (e) {
@@ -109,6 +131,34 @@ async function fetchViaPage(url, asBinary = false) {
   if (!result) throw new Error('页面没有返回结果，请刷新语雀标签页后重试');
   if (!result.ok) throw new Error(result.error || '请求失败');
   return result;
+}
+
+async function fetchBinary(url, limitKbps = 0) {
+  let target;
+  try { target = new URL(url); } catch { throw new Error('图片或附件 URL 无效'); }
+  if (!['http:', 'https:'].includes(target.protocol)) throw new Error('图片或附件仅支持 HTTP(S) 地址');
+
+  let pageError = '';
+  if (/(^|\.)yuque\.com$/i.test(target.hostname)) {
+    try { return await fetchViaPage(url, true, limitKbps); }
+    catch (e) { pageError = `页面读取：${e.message}；`; }
+  }
+
+  const result = await pageFetch(url, true, YQ_CFG.timeoutMs,
+    Math.max(0, Math.min(10240, Number(limitKbps) || 0)) * 1024);
+  if (result.ok) return result;
+  if (result.status) throw new Error(`${pageError}${target.host} 返回 HTTP ${result.status}`);
+
+  let permitted = null;
+  try { permitted = await chrome.permissions.contains({ origins: [`${target.origin}/*`] }); }
+  catch { /* 权限查询失败时仍保留网络错误 */ }
+  if (permitted === false) {
+    const hint = target.hostname === 'cdn.nlark.com'
+      ? '请重新加载 0.3.1 或更新版本的扩展，并在扩展详情中允许访问 cdn.nlark.com'
+      : '该图片域名未获扩展访问权限，且当前跨域请求失败';
+    throw new Error(`${pageError}${target.host} 读取失败：${hint}（${result.error}）`);
+  }
+  throw new Error(`${pageError}${target.host} 读取失败：${result.error}；请检查网络、代理或图片链接是否仍有效`);
 }
 
 /** 通过 content script 读当前标签页的 DOM（Markdown 接口失效时的兜底） */
@@ -147,12 +197,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       switch (msg && msg.type) {
         case 'PAGE_FETCH': {
-          const r = await fetchViaPage(msg.url, false);
+          const r = await fetchViaPage(msg.url, false, msg.limitKbps);
           sendResponse({ ok: true, text: r.text, mime: r.mime, status: r.status });
           break;
         }
         case 'PAGE_FETCH_BIN': {
-          const r = await fetchViaPage(msg.url, true);
+          const r = await fetchBinary(msg.url, msg.limitKbps);
           sendResponse({ ok: true, b64: r.b64, mime: r.mime, status: r.status });
           break;
         }

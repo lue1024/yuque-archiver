@@ -39,7 +39,18 @@
     <label class="chk"><input type="checkbox" id="fmtMd" checked /> <span>Markdown（.md）</span></label>
     <label class="chk"><input type="checkbox" id="fmtHtml" /> <span>HTML（由 Markdown 渲染，单文件可直开）</span></label>
     <label class="chk"><input type="checkbox" id="fmtLake" /> <span>原始 lake 导出（存 .lake 原文 + 一份能直接看的 .html）</span></label>
-    <label class="chk"><input type="checkbox" id="localizeImg" checked /> <span>把图片下载到本地并改写链接</span></label>
+    <label class="chk"><input type="checkbox" id="localizeImg" checked /> <span>下载图片到本地，并补全已有文档中的远程图片链接</span></label>
+    <div class="row download-options">
+      <label for="speedLimit">下载限速</label>
+      <input id="speedLimit" type="number" min="0" max="10240" step="1" value="0" />
+      <span>KB/s（0 为不限速）</span>
+    </div>
+    <label class="chk"><input type="checkbox" id="skipExisting" checked /> <span>只下载缺失文件（已有非空文件跳过）</span></label>
+    <div class="row download-options">
+      <button id="chooseDownloadDir" class="btn btn-mini" type="button">选择保存位置</button>
+      <span id="downloadDirStatus" class="hint">尚未选择；开始导出时会提示选择</span>
+    </div>
+    <div class="hint">在所选位置下按「知识库名 / 语雀文件夹 / 文档标题」保存。先补齐文件夹，再下载缺失文件；再次选择同一位置即可续传。取消勾选时另存副本。</div>
   </section>
 
   <section class="card">
@@ -62,6 +73,7 @@
   <script src="js/config.js"></script>
   <script src="js/md2html.js"></script>
   <script src="js/html2md.js"></script>
+  <script src="js/local-files.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
